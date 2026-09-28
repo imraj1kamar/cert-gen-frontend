@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model log {
+  id               Int      @id @default(autoincrement())
+  action           String
+  user             String
+  details          String?
+  status           Int      @default(1)
+  createdBy        String?
+  timestamp        DateTime @default(now())
+  totalRecords     Int      @default(0)
+  successCount     Int      @default(0)
+  skipCount        Int      @default(0)
+  errorCount       Int      @default(0)
+  executionDetails Json?
+  archiveUrl       String?
+}
+
+model menu {
+  id         Int      @id @default(autoincrement())
+  label      String
+  href       String   @unique(map: "Menu_href_key")
+  icon       String
+  permission String
+  adminOnly  Boolean  @default(false)
+  status     Int      @default(1)
+  createdBy  String?
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime
+}
+
+model signatory {
+  id           Int      @id @default(autoincrement())
+  name         String
+  designation  String
+  signatureUrl String?
+  status       Int      @default(1)
+  createdBy    String?
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime?
+}
+
+model template {
+  id           Int      @id @default(autoincrement())
+  category     String   @unique(map: "Template_category_key")
+  templateName String
+  pdfUrl       String?
+  mappingData  Json?
+  status       Int      @default(1)
+  createdBy    String?
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime?
+}
+
+model user {
+  id          Int      @id @default(autoincrement())
+  username    String   @unique(map: "User_username_key")
+  password    String
+  name        String?
+  role        String   @default("user")
+  permissions Json?
+  status      Int      @default(1)
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime?
+}
