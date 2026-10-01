@@ -74,11 +74,30 @@ axiosInstance.interceptors.response.use(
   }
 );
 
+// ── In-flight GET deduplication map ──────────────────────────────────────────
+// Agar ek hi waqt 2 components same URL maangein, toh sirf 1 network request
+// jaayegi — dono ko same Promise milegi. Request settle hone par entry delete
+// ho jaati hai taaki future intentional refetches properly kaam kar sakein.
+const inflightRequests = new Map();
+
 // Unified apiService object containing HTTP methods
 export const apiService = {
   get: async (url, config = {}) => {
-    const response = await axiosInstance.get(url, config);
-    return response.data;
+    // Deduplication sirf plain GET calls ke liye (no custom signal/params)
+    const dedupKey = url;
+    if (inflightRequests.has(dedupKey)) {
+      return inflightRequests.get(dedupKey);
+    }
+
+    const promise = axiosInstance
+      .get(url, config)
+      .then((res) => res.data)
+      .finally(() => {
+        inflightRequests.delete(dedupKey);
+      });
+
+    inflightRequests.set(dedupKey, promise);
+    return promise;
   },
   post: async (url, data, config = {}) => {
     const response = await axiosInstance.post(url, data, config);

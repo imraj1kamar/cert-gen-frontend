@@ -17,7 +17,7 @@ import { generateApi } from "@/redux/api/generateApi";
 import { templateApi } from "@/redux/api/templateApi";
 import { signatureApi } from "@/redux/api/signatoriesApi";
 import { selectTemplates, setTemplates } from "@/redux/slices/templateSlice";
-import { selectSignatures, setSignatures } from "@/redux/slices/signatoriesSlice"; 
+import { selectSignatures, setSignatures } from "@/redux/slices/signatoriesSlice";
 import {
   setValidationResults,
   setLoading,
@@ -42,30 +42,40 @@ export default function GeneratePage() {
   const isProcessing = useSelector(selectLoading);
   const generateError = useSelector(selectError);
 
-  const [selectedFile, setSelectedFile] = useState(null); 
+  const [selectedFile, setSelectedFile] = useState(null);
   const [summaryData, setSummaryData] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [jobId, setJobId] = useState(null);
 
   useEffect(() => {
+    // Strict Mode guard: React dev mode mounts twice; ref ensures fetch sirf ek baar ho
+    let mounted = true;
+
     if (dbTemplates.length === 0) {
-      templateApi.getTemplates().then((res) => dispatch(setTemplates(res.data || res)));
+      templateApi.getTemplates().then((res) => {
+        if (mounted) dispatch(setTemplates(res.data || res));
+      });
     }
     if (dbSignatories.length === 0) {
-      signatureApi.getSignatures().then((res) => dispatch(setSignatures(res.data || res)));
+      signatureApi.getSignatures().then((res) => {
+        if (mounted) dispatch(setSignatures(res.data || res));
+      });
     }
-  }, [dispatch, dbTemplates.length, dbSignatories.length]);
+
+    return () => { mounted = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- sirf mount par ek baar chahiye
 
   const handleFile = async (file) => {
     console.log("🟦 [FRONTEND] File dropped:", file.name);
     dispatch(setLoading(true));
-    dispatch(clearGenerateState()); 
-    setSelectedFile(file); 
+    dispatch(clearGenerateState());
+    setSelectedFile(file);
 
     try {
-      const result = await parseAndValidateExcel(file, dbTemplates, dbSignatories); 
+      const result = await parseAndValidateExcel(file, dbTemplates, dbSignatories);
       console.log("🟦 [FRONTEND] Excel Parsing Complete. Valid records:", result.records?.length);
-      
+
       dispatch(setValidationResults({
         validData: result.records || [],
         errors: result.isValid === false ? (result.errors || []) : [],
@@ -82,16 +92,23 @@ export default function GeneratePage() {
 
   const handleStartGeneration = async () => {
     if (!selectedFile || parsedData.length === 0 || validationErrors.length > 0) return;
-    
-    console.log("🚀 [FRONTEND] Starting ZIP Generation for", parsedData.length, "records...");
+
+    // Generate a unique job ID for this run
+    const newJobId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `job_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    console.log("🚀 [FRONTEND] Starting ZIP Generation for", parsedData.length, "records... JobID:", newJobId);
+    setJobId(newJobId);
     setIsGenerating(true);
     setIsModalOpen(true);
 
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-      formData.append("data", JSON.stringify(parsedData)); 
-      formData.append("user", "System Admin"); 
+      formData.append("data", JSON.stringify(parsedData));
+      formData.append("user", "System Admin");
+      formData.append("jobId", newJobId); // ← pass jobId to server
 
       console.log("🚀 [FRONTEND] Calling Backend API (/api/generate)...");
       const response = await generateApi.generateCertificates(formData);
@@ -99,13 +116,13 @@ export default function GeneratePage() {
 
       const blob = new Blob([response.data || response], { type: "application/zip" });
       const downloadUrl = window.URL.createObjectURL(blob);
-      
+
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.setAttribute("download", `Bulk_Certificates_${new Date().toISOString().slice(0, 10)}.zip`);
       document.body.appendChild(link);
       link.click();
-      
+
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
       console.log("✅ [FRONTEND] Download triggered successfully.");
@@ -114,7 +131,6 @@ export default function GeneratePage() {
       alert("Failed to generate certificates. Please check console for details.");
     } finally {
       setIsGenerating(false);
-      setIsModalOpen(false);
     }
   };
 
@@ -147,7 +163,7 @@ export default function GeneratePage() {
         <div className="space-y-6">
           {summaryData && <SummaryDataGrid summary={summaryData} />}
           <CertificateCanvasPreview record={parsedData[0]} />
-          
+
           <div className="flex justify-end">
             <Button size="lg" icon={Play} onClick={handleStartGeneration} disabled={isGenerating || isProcessing}>
               {isGenerating ? "Generating ZIP..." : `Start Async Generation (${parsedData.length} Records)`}
@@ -156,7 +172,13 @@ export default function GeneratePage() {
         </div>
       )}
 
-      <GenerationProgressModal isOpen={isModalOpen} onClose={() => !isGenerating && setIsModalOpen(false)} totalRecords={parsedData.length || 0} isGenerating={isGenerating} />
+      <GenerationProgressModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        totalRecords={parsedData.length || 0}
+        isGenerating={isGenerating}
+        jobId={jobId}
+      />
     </div>
   );
 }

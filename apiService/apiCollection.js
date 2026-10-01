@@ -36,6 +36,8 @@ export const apiCollection = {
 
   // Logs
   getLogs: () => apiService.get("/api/logs"),
+  addLog: (data) => apiService.post("/api/logs", data),
+
 
   // ⭐️ Master Certificate Generation Engine
   generateCertificates: (formData) => apiService.post("/api/generate", formData, {

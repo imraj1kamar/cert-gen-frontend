@@ -37,7 +37,15 @@ export default function Sidebar({ isOpen, onClose }) {
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
+    // ── Guard: agar menus pehle se Redux store mein hain toh fetch skip karo ──
+    if (menus.length > 0) {
+      setIsLoading(false);
+      return;
+    }
+
+    // AbortController: React Strict Mode cleanup par fetch mid-flight cancel ho jaayegi
+    const controller = new AbortController();
+    const { signal } = controller;
 
     const loadMenus = async () => {
       setIsLoading(true);
@@ -45,19 +53,32 @@ export default function Sidebar({ isOpen, onClose }) {
       dispatch(setLoading(true));
 
       try {
-        let res = await getMenus();
+        let res = await fetch("/api/menus", {
+          credentials: "include",
+          cache: "no-store",
+          signal,                // ← abort signal attach karo
+        });
 
         // Access token expire ho toh ek baar refresh karke retry
         if (res.status === 401) {
           const refresh = await fetch("/api/auth/refresh", {
             method: "POST",
             credentials: "include",
+            signal,              // ← refresh par bhi signal
           });
-          if (refresh.ok) res = await getMenus();
+          if (refresh.ok) {
+            res = await fetch("/api/menus", {
+              credentials: "include",
+              cache: "no-store",
+              signal,
+            });
+          }
         }
 
+        // Agar component unmount ho gaya (abort) toh aage mat jao
+        if (signal.aborted) return;
+
         const json = await res.json();
-        if (cancelled) return;
 
         if (!res.ok || !json.success) {
           throw new Error(json.message || "Failed to load menus");
@@ -66,9 +87,11 @@ export default function Sidebar({ isOpen, onClose }) {
         dispatch(setMenus(json.data ?? []));
         setUserRole(json.role ?? "user");
       } catch (err) {
-        if (!cancelled) setError(err.message || "Failed to load menus");
+        // AbortError sirf tab aata hai jab hum khud abort karte hain — ignore karo
+        if (err.name === "AbortError") return;
+        if (!signal.aborted) setError(err.message || "Failed to load menus");
       } finally {
-        if (!cancelled) {
+        if (!signal.aborted) {
           setIsLoading(false);
           dispatch(setLoading(false));
         }
@@ -76,10 +99,10 @@ export default function Sidebar({ isOpen, onClose }) {
     };
 
     loadMenus();
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch, retryCount]);
+
+    // Cleanup: component unmount ya re-run par in-flight request cancel karo
+    return () => controller.abort();
+  }, [dispatch, retryCount]); // retryCount tabhi change hoga jab user "Retry" click kare
 
   // Mobile drawer me koi link click hote hi menu band ho jaye
   const handleLinkClick = () => {
